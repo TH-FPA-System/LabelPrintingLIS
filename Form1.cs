@@ -196,8 +196,8 @@ namespace ZebraPrinterGUI
                     return;
                 }
 
-                // Save to file and add to dropdown
-                SaveNewModelToFile(newModel, newPart, newDesc);
+                // Save to file (unified method) and add to dropdown
+                SaveOrUpdateModelInFile(newModel, newPart, newDesc);
                 comboModels.Items.Add(newModel);
                 comboModels.SelectedItem = newModel;
 
@@ -232,6 +232,20 @@ namespace ZebraPrinterGUI
 
             if (comboModels.Items.Count > 0)
                 comboModels.SelectedIndex = 0;
+        }
+
+        /// <summary>
+        /// Saves the current PartNo and Description for the selected model to part_info.txt.
+        /// </summary>
+        private void btnSave_Click(object sender, EventArgs e)
+        {
+            if (comboModels.SelectedItem == null) return;
+
+            string model = comboModels.SelectedItem.ToString();
+            SaveOrUpdateModelInFile(model, PartNoTxt.Text.Trim(), DescTxt.Text.Trim());
+
+            MessageBox.Show($"Saved \"{model}\" successfully.", "Saved",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
         // ─────────────────────────────────────────────
@@ -327,19 +341,48 @@ namespace ZebraPrinterGUI
         }
 
         /// <summary>
-        /// Appends a new model block to part_info.txt.
+        /// Saves or updates a model block in part_info.txt.
+        /// If the model already exists, its PartNo and Description are updated in-place.
+        /// If it does not exist, a new block is appended.
+        /// This replaces the old SaveNewModelToFile method.
         /// </summary>
-        private void SaveNewModelToFile(string model, string partNo, string desc)
+        private void SaveOrUpdateModelInFile(string model, string partNo, string desc)
         {
             string filePath = GetFilePath();
 
-            using (StreamWriter sw = new StreamWriter(filePath, append: true))
+            var lines = File.Exists(filePath)
+                ? new System.Collections.Generic.List<string>(File.ReadAllLines(filePath))
+                : new System.Collections.Generic.List<string>();
+
+            bool found = false;
+
+            for (int i = 0; i < lines.Count; i++)
             {
-                sw.WriteLine($"Model: {model}");
-                sw.WriteLine($"PartNo: {partNo}");
-                sw.WriteLine($"Description: {desc}");
-                sw.WriteLine(); // blank separator line
+                if (lines[i].StartsWith("Model: ") && lines[i].Substring(7).Trim() == model)
+                {
+                    // Update PartNo line in-place
+                    if (i + 1 < lines.Count && lines[i + 1].StartsWith("PartNo: "))
+                        lines[i + 1] = $"PartNo: {partNo}";
+
+                    // Update Description line in-place
+                    if (i + 2 < lines.Count && lines[i + 2].StartsWith("Description: "))
+                        lines[i + 2] = $"Description: {desc}";
+
+                    found = true;
+                    break;
+                }
             }
+
+            if (!found)
+            {
+                // Append new block
+                lines.Add($"Model: {model}");
+                lines.Add($"PartNo: {partNo}");
+                lines.Add($"Description: {desc}");
+                lines.Add(""); // blank separator
+            }
+
+            File.WriteAllLines(filePath, lines);
         }
 
         /// <summary>
@@ -366,7 +409,8 @@ namespace ZebraPrinterGUI
                             string.IsNullOrWhiteSpace(lines[skip])))
                     {
                         skip++;
-                        if (skip < lines.Length && lines[skip - 1].StartsWith("Model: ") &&
+                        if (skip < lines.Length &&
+                            lines[skip - 1].StartsWith("Model: ") &&
                             !lines[skip - 1].Substring(7).Trim().Equals(model))
                             break; // stop if we have bumped into the next model block
                     }
